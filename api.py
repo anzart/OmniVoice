@@ -34,6 +34,14 @@ from pydantic import BaseModel, Field
 # (None, error_message) on failure. Provided by app.py so the API and the
 # Gradio UI share one generation path.
 SynthesizeFn = Callable[..., tuple[Optional[np.ndarray], Optional[str]]]
+# Transcribe a WAV file path → text (the model's Whisper ASR).
+TranscribeFn = Callable[[str], str]
+
+
+class TranscribeRequest(BaseModel):
+    """Request body for POST /api/transcribe."""
+
+    audio_base64: str = Field(..., description="Base64-encoded WAV to transcribe.")
 
 
 class TtsRequest(BaseModel):
@@ -68,6 +76,7 @@ def _corp_cross_origin(response: Response) -> None:
 def create_app(
     *,
     synthesize: SynthesizeFn,
+    transcribe: TranscribeFn,
     sampling_rate: int,
     device: str,
     checkpoint: str,
@@ -108,6 +117,26 @@ def create_app(
                 "samplingRate": sampling_rate,
             }
         )
+
+    @app.post("/api/transcribe")
+    async def transcribe_audio(req: TranscribeRequest):
+        """Transcribe a reference WAV using the model's ASR → `{ "text": ... }`.
+
+        Used by the frontend to pre-fill a clone voice's reference transcript.
+        """
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(base64.b64decode(req.audio_base64))
+            text = transcribe(tmp_path)
+            return JSONResponse({"text": text})
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"{type(e).__name__}: {e}"}, status_code=422
+            )
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
     @app.post("/api/tts")
     async def tts(req: TtsRequest):

@@ -174,6 +174,7 @@ if __name__ == "__main__":
 
         fastapi_app = create_app(
             synthesize=_synthesize,
+            transcribe=model.transcribe,
             sampling_rate=sampling_rate,
             device=DEVICE,
             checkpoint=CHECKPOINT,
