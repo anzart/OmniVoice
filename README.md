@@ -407,7 +407,49 @@ npm run dev                 # WEB (Vite :5173) + TTS (Gradio :7860)
 npm run dev:web             # web app only (skip the ~30 s model load)
 ```
 
-`npm run dev` uses `concurrently -k`, so **Ctrl-C stops both** processes.
+`npm run dev` uses `concurrently`, so **Ctrl-C stops both** processes.
+
+### REST API
+
+On top of the Gradio UI, the local fork exposes a small **REST API** (see
+`api.py`) so the dawal-studio frontend can call it with a stable JSON contract
+instead of Gradio's queue/event protocol. Both share one port:
+
+| Path | What |
+|---|---|
+| `GET /api/health` | `{ status, model, device, samplingRate }` — readiness probe. |
+| `POST /api/tts` | Synthesize speech → `audio/wav` (32-bit float, mono). |
+| `/` | The Gradio demo UI (unchanged). |
+
+`POST /api/tts` body (JSON):
+
+```jsonc
+{
+  "text": "Azul fell-awen",   // required
+  "language": null,            // null = auto-detect
+  "mode": "tts",               // "tts" or "clone"
+  "instruct": null,
+  "num_step": 32,
+  "guidance_scale": 2.0,
+  "denoise": true,
+  "speed": null,
+  "duration": null,
+  // voice cloning (mode == "clone"):
+  "ref_audio_base64": null,    // base64 WAV of the reference voice
+  "ref_text": null
+}
+```
+
+Errors come back as `{ "error": "..." }` with HTTP 422.
+
+The responses carry CORS + `Cross-Origin-Resource-Policy: cross-origin`, which
+is **required**: the frontend runs under `COEP: require-corp`, which would
+otherwise block this cross-origin (`:5173` → `:7860`) response.
+
+Environment toggles:
+
+- `OMNIVOICE_API=0` — serve only the Gradio UI (no REST layer).
+- `OMNIVOICE_CORS_ORIGINS` — comma-separated allowed origins (default `*`).
 
 ### Pulling updates from upstream (k2-fsa/OmniVoice)
 
