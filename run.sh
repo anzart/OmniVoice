@@ -18,4 +18,10 @@ fi
 export GRADIO_SERVER_NAME="${GRADIO_SERVER_NAME:-127.0.0.1}"
 export GRADIO_SERVER_PORT="${GRADIO_SERVER_PORT:-7860}"
 
+# Unbuffered stdout so Gradio's "Running on ..." line flushes immediately
+# when piped through `concurrently` (a pipe, not a TTY).
+export PYTHONUNBUFFERED=1
+
+echo "[omnivoice] Starting Gradio on http://${GRADIO_SERVER_NAME}:${GRADIO_SERVER_PORT} (loading model, ~30 s) ..."
+
 exec env/bin/python app.py
