@@ -349,3 +349,88 @@ Explore them in [Community Projects](docs/community-projects.md).
 ## Disclaimer
 
 Users are strictly prohibited from using this model for unauthorized voice cloning, voice impersonation, fraud, scams, or any other illegal or unethical activities. All users shall ensure full compliance with applicable local laws, regulations, and ethical standards. The developers assume no liability for any misuse of this model and advocate for responsible AI development and use, encouraging the community to uphold safety and ethical principles in AI research and applications.
+
+---
+
+<!-- ========================================================================
+     LOCAL FORK NOTES — not part of upstream k2-fsa/OmniVoice.
+     Lives only on the `local-offline` branch. Kept at the very end of the
+     file so `git rebase upstream/master` rarely touches it.
+     ======================================================================== -->
+
+## 🛠️ Local fork (dawal-studio integration)
+
+This copy lives inside the **dawal-studio** project as a standalone Gradio TTS
+server. It runs **fully offline** at runtime (the model is loaded from the
+local Hugging Face cache; `app.py` sets `HF_HUB_OFFLINE=1`).
+
+### What differs from upstream
+
+Three **additive** files exist only here (committed on the `local-offline`
+branch) — upstream has none of them, so they never conflict on a pull:
+
+| File | Purpose |
+|---|---|
+| `app.py` | Gradio entry point. Forces offline mode, auto-detects **MPS/CPU** (falls back from CUDA), drops the ZeroGPU `spaces` decorator. |
+| `requirements.txt` | Pip dependency list used to build the local venv (upstream uses `pyproject.toml` + `uv.lock`). |
+| `run.sh` | Dev launcher: cd's into this folder, checks the venv, runs `app.py` with `GRADIO_SERVER_PORT=7860`. |
+
+### First-time setup (recreate the virtualenv)
+
+The `env/` virtualenv is **git-ignored** and must be created locally:
+
+```bash
+cd omnivoice-server
+/opt/homebrew/opt/python@3.10/bin/python3.10 -m venv env
+env/bin/python -m pip install -r requirements.txt
+```
+
+The model weights (`k2-fsa/OmniVoice`) must already be in the Hugging Face
+cache (`~/.cache/huggingface`). With offline mode on, they are never
+downloaded at runtime.
+
+### Running the server
+
+```bash
+# Standalone, from the dawal-studio root:
+npm run dev:server          # → http://127.0.0.1:7860
+
+# Or directly:
+bash omnivoice-server/run.sh
+```
+
+It is also started **automatically** by the dawal-studio dev command, in
+parallel with the Vite web app:
+
+```bash
+npm run dev                 # WEB (Vite :5173) + TTS (Gradio :7860)
+npm run dev:web             # web app only (skip the ~30 s model load)
+```
+
+`npm run dev` uses `concurrently -k`, so **Ctrl-C stops both** processes.
+
+### Pulling updates from upstream (k2-fsa/OmniVoice)
+
+Remotes:
+
+- `upstream` → `https://github.com/k2-fsa/OmniVoice.git` (source of updates)
+- `origin`   → `https://github.com/anzart/OmniVoice.git` (personal fork, patch backup)
+
+To bring in remote changes (needs internet **only during the fetch**; runtime
+stays offline) while keeping the local offline patch on top:
+
+```bash
+cd omnivoice-server
+git fetch upstream
+git rebase upstream/master        # replays the local-offline commit on top
+# if a conflict appears (rare — only on the omnivoice/ package, docs/, examples/):
+#   resolve the files, then:  git rebase --continue
+
+# if requirements changed upstream, refresh the venv:
+env/bin/python -m pip install -r requirements.txt
+```
+
+Optionally back up the patch online: `git push origin local-offline`.
+
+> **Note:** the parent **dawal-studio** repo git-ignores this entire folder —
+> `omnivoice-server/` is managed as its own independent git repository.
