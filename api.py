@@ -59,6 +59,9 @@ class TtsRequest(BaseModel):
     duration: Optional[float] = None
     preprocess_prompt: bool = True
     postprocess_output: bool = True
+    # Sampling randomness — 0 = greedy/deterministic, higher = more varied.
+    position_temperature: float = 5.0
+    class_temperature: float = 0.0
 
     # Voice cloning (mode == "clone")
     ref_audio_base64: Optional[str] = Field(
@@ -173,6 +176,8 @@ def create_app(
                 duration=req.duration,
                 preprocess_prompt=req.preprocess_prompt,
                 postprocess_output=req.postprocess_output,
+                position_temperature=req.position_temperature,
+                class_temperature=req.class_temperature,
                 mode=req.mode,
                 ref_text=req.ref_text,
             )

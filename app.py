@@ -58,6 +58,8 @@ def _synthesize(
     duration=None,
     preprocess_prompt=True,
     postprocess_output=True,
+    position_temperature=5.0,
+    class_temperature=0.0,
     mode="tts",
     ref_text=None,
 ):
@@ -76,6 +78,12 @@ def _synthesize(
         denoise=bool(denoise) if denoise is not None else True,
         preprocess_prompt=bool(preprocess_prompt),
         postprocess_output=bool(postprocess_output),
+        position_temperature=float(position_temperature)
+        if position_temperature is not None
+        else 5.0,
+        class_temperature=float(class_temperature)
+        if class_temperature is not None
+        else 0.0,
     )
 
     lang = language if (language and language != "Auto") else None
