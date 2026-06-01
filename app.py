@@ -95,6 +95,7 @@ def _synthesize(
         kw["voice_clone_prompt"] = model.create_voice_clone_prompt(
             ref_audio=ref_audio,
             ref_text=ref_text,
+            preprocess_prompt=bool(preprocess_prompt),
         )
 
     if instruct and instruct.strip():
