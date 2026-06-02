@@ -46,6 +46,73 @@ print("Model loaded successfully!")
 # ---------------------------------------------------------------------------
 
 
+def _make_gen_config(
+    num_step,
+    guidance_scale,
+    denoise,
+    preprocess_prompt,
+    postprocess_output,
+    position_temperature,
+    class_temperature,
+):
+    """Build an OmniVoiceGenerationConfig from raw (possibly None) values."""
+    return OmniVoiceGenerationConfig(
+        num_step=int(num_step or 32),
+        guidance_scale=float(guidance_scale) if guidance_scale is not None else 2.0,
+        denoise=bool(denoise) if denoise is not None else True,
+        preprocess_prompt=bool(preprocess_prompt),
+        postprocess_output=bool(postprocess_output),
+        position_temperature=float(position_temperature)
+        if position_temperature is not None
+        else 5.0,
+        class_temperature=float(class_temperature)
+        if class_temperature is not None
+        else 0.0,
+    )
+
+
+def _build_generate_kwargs(
+    *,
+    text,
+    language,
+    ref_audio,
+    instruct,
+    speed,
+    duration,
+    mode,
+    ref_text,
+    gen_config,
+):
+    """Assemble the kwargs for ``model.generate`` shared by single + batch.
+
+    ``text`` may be a string (single) or a list (batch). The voice prompt /
+    instruct are built once and broadcast across the batch by the model. Raises
+    ValueError with a user-facing message on bad input.
+    """
+    lang = language if (language and language != "Auto") else None
+    kw: Dict[str, Any] = dict(text=text, language=lang, generation_config=gen_config)
+
+    if speed is not None and float(speed) != 1.0:
+        kw["speed"] = float(speed)
+    if duration is not None and float(duration) > 0:
+        kw["duration"] = float(duration)
+
+    if mode == "clone":
+        if not ref_audio:
+            raise ValueError("Please upload a reference audio.")
+        # One prompt — the model broadcasts it to every text in the batch.
+        kw["voice_clone_prompt"] = model.create_voice_clone_prompt(
+            ref_audio=ref_audio,
+            ref_text=ref_text,
+            preprocess_prompt=bool(gen_config.preprocess_prompt),
+        )
+
+    if instruct and instruct.strip():
+        kw["instruct"] = instruct.strip()
+
+    return kw
+
+
 def _synthesize(
     text,
     language=None,
@@ -72,49 +139,74 @@ def _synthesize(
     if not text or not text.strip():
         return None, "Please enter the text to synthesize."
 
-    gen_config = OmniVoiceGenerationConfig(
-        num_step=int(num_step or 32),
-        guidance_scale=float(guidance_scale) if guidance_scale is not None else 2.0,
-        denoise=bool(denoise) if denoise is not None else True,
-        preprocess_prompt=bool(preprocess_prompt),
-        postprocess_output=bool(postprocess_output),
-        position_temperature=float(position_temperature)
-        if position_temperature is not None
-        else 5.0,
-        class_temperature=float(class_temperature)
-        if class_temperature is not None
-        else 0.0,
+    gen_config = _make_gen_config(
+        num_step, guidance_scale, denoise, preprocess_prompt,
+        postprocess_output, position_temperature, class_temperature,
     )
-
-    lang = language if (language and language != "Auto") else None
-
-    kw: Dict[str, Any] = dict(
-        text=text.strip(), language=lang, generation_config=gen_config
-    )
-
-    if speed is not None and float(speed) != 1.0:
-        kw["speed"] = float(speed)
-    if duration is not None and float(duration) > 0:
-        kw["duration"] = float(duration)
-
-    if mode == "clone":
-        if not ref_audio:
-            return None, "Please upload a reference audio."
-        kw["voice_clone_prompt"] = model.create_voice_clone_prompt(
-            ref_audio=ref_audio,
-            ref_text=ref_text,
-            preprocess_prompt=bool(preprocess_prompt),
-        )
-
-    if instruct and instruct.strip():
-        kw["instruct"] = instruct.strip()
-
     try:
+        kw = _build_generate_kwargs(
+            text=text.strip(), language=language, ref_audio=ref_audio,
+            instruct=instruct, speed=speed, duration=duration, mode=mode,
+            ref_text=ref_text, gen_config=gen_config,
+        )
         audio = model.generate(**kw)
+    except ValueError as e:
+        return None, str(e)
     except Exception as e:
         return None, f"Error: {type(e).__name__}: {e}"
 
     return np.asarray(audio[0], dtype=np.float32), None
+
+
+def _synthesize_batch(
+    texts,
+    language=None,
+    ref_audio=None,
+    instruct=None,
+    num_step=32,
+    guidance_scale=2.0,
+    denoise=True,
+    speed=None,
+    duration=None,
+    preprocess_prompt=True,
+    postprocess_output=True,
+    position_temperature=5.0,
+    class_temperature=0.0,
+    mode="tts",
+    ref_text=None,
+):
+    """Batched generation: ONE ``model.generate`` call for several texts that
+    share the same voice + settings (e.g. the A/B comparison tool).
+
+    A batched forward pass amortises the per-step cost instead of running N
+    separate inferences that would contend for a single GPU/MPS device.
+
+    Returns ``(list[float32_waveform], None)`` — one per input text, same order
+    — or ``(None, error)``.
+    """
+    if not texts:
+        return None, "Please enter the text to synthesize."
+    cleaned = [(t or "").strip() for t in texts]
+    if not all(cleaned):
+        return None, "Please enter the text to synthesize."
+
+    gen_config = _make_gen_config(
+        num_step, guidance_scale, denoise, preprocess_prompt,
+        postprocess_output, position_temperature, class_temperature,
+    )
+    try:
+        kw = _build_generate_kwargs(
+            text=cleaned, language=language, ref_audio=ref_audio,
+            instruct=instruct, speed=speed, duration=duration, mode=mode,
+            ref_text=ref_text, gen_config=gen_config,
+        )
+        audios = model.generate(**kw)
+    except ValueError as e:
+        return None, str(e)
+    except Exception as e:
+        return None, f"Error: {type(e).__name__}: {e}"
+
+    return [np.asarray(a, dtype=np.float32) for a in audios], None
 
 
 def _gen_core(
@@ -183,6 +275,7 @@ if __name__ == "__main__":
 
         fastapi_app = create_app(
             synthesize=_synthesize,
+            synthesize_batch=_synthesize_batch,
             transcribe=model.transcribe,
             sampling_rate=sampling_rate,
             device=DEVICE,
