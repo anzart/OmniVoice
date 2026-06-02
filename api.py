@@ -65,6 +65,12 @@ class TtsRequest(BaseModel):
     # Sampling randomness — 0 = greedy/deterministic, higher = more varied.
     position_temperature: float = 5.0
     class_temperature: float = 0.0
+    # Decoding noise-schedule shift (smaller emphasises earlier steps).
+    t_shift: Optional[float] = None
+    # Long-form chunking (seconds): split text into segments of ~duration when
+    # the estimated audio exceeds the threshold.
+    audio_chunk_duration: Optional[float] = None
+    audio_chunk_threshold: Optional[float] = None
 
     # Voice cloning (mode == "clone")
     ref_audio_base64: Optional[str] = Field(
@@ -110,6 +116,9 @@ class BatchTtsRequest(BaseModel):
     postprocess_output: bool = True
     position_temperature: float = 5.0
     class_temperature: float = 0.0
+    t_shift: Optional[float] = None
+    audio_chunk_duration: Optional[float] = None
+    audio_chunk_threshold: Optional[float] = None
 
     ref_audio_base64: Optional[str] = None
     ref_text: Optional[str] = None
@@ -307,6 +316,9 @@ def create_app(
                 postprocess_output=req.postprocess_output,
                 position_temperature=req.position_temperature,
                 class_temperature=req.class_temperature,
+                t_shift=req.t_shift,
+                audio_chunk_duration=req.audio_chunk_duration,
+                audio_chunk_threshold=req.audio_chunk_threshold,
                 mode=req.mode,
                 ref_text=req.ref_text,
             )
@@ -391,6 +403,9 @@ def create_app(
                 postprocess_output=req.postprocess_output,
                 position_temperature=req.position_temperature,
                 class_temperature=req.class_temperature,
+                t_shift=req.t_shift,
+                audio_chunk_duration=req.audio_chunk_duration,
+                audio_chunk_threshold=req.audio_chunk_threshold,
                 mode=req.mode,
                 ref_text=req.ref_text,
             )

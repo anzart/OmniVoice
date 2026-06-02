@@ -54,6 +54,9 @@ def _make_gen_config(
     postprocess_output,
     position_temperature,
     class_temperature,
+    t_shift=None,
+    audio_chunk_duration=None,
+    audio_chunk_threshold=None,
 ):
     """Build an OmniVoiceGenerationConfig from raw (possibly None) values."""
     return OmniVoiceGenerationConfig(
@@ -68,6 +71,13 @@ def _make_gen_config(
         class_temperature=float(class_temperature)
         if class_temperature is not None
         else 0.0,
+        t_shift=float(t_shift) if t_shift is not None else 0.1,
+        audio_chunk_duration=float(audio_chunk_duration)
+        if audio_chunk_duration is not None
+        else 15.0,
+        audio_chunk_threshold=float(audio_chunk_threshold)
+        if audio_chunk_threshold is not None
+        else 30.0,
     )
 
 
@@ -129,6 +139,9 @@ def _synthesize(
     class_temperature=0.0,
     mode="tts",
     ref_text=None,
+    t_shift=None,
+    audio_chunk_duration=None,
+    audio_chunk_threshold=None,
 ):
     """Core generation, shared by the Gradio UI and the REST API.
 
@@ -142,6 +155,8 @@ def _synthesize(
     gen_config = _make_gen_config(
         num_step, guidance_scale, denoise, preprocess_prompt,
         postprocess_output, position_temperature, class_temperature,
+        t_shift=t_shift, audio_chunk_duration=audio_chunk_duration,
+        audio_chunk_threshold=audio_chunk_threshold,
     )
     try:
         kw = _build_generate_kwargs(
@@ -174,6 +189,9 @@ def _synthesize_batch(
     class_temperature=0.0,
     mode="tts",
     ref_text=None,
+    t_shift=None,
+    audio_chunk_duration=None,
+    audio_chunk_threshold=None,
 ):
     """Batched generation: ONE ``model.generate`` call for several texts that
     share the same voice + settings (e.g. the A/B comparison tool).
@@ -193,6 +211,8 @@ def _synthesize_batch(
     gen_config = _make_gen_config(
         num_step, guidance_scale, denoise, preprocess_prompt,
         postprocess_output, position_temperature, class_temperature,
+        t_shift=t_shift, audio_chunk_duration=audio_chunk_duration,
+        audio_chunk_threshold=audio_chunk_threshold,
     )
     try:
         kw = _build_generate_kwargs(
