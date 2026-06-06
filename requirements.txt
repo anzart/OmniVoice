@@ -8,3 +8,10 @@ librosa
 numpy
 gradio
 hf_transfer
+
+# Optional: multilingual ASR for languages Whisper can't transcribe (e.g.
+# Kabyle), used by transcript validation. Heavy + GPU-oriented; the server
+# falls back to the built-in Whisper ASR if it's absent. Install to enable:
+#   pip install omnilingual-asr
+# Then optionally set OMNILINGUAL_MODEL (default: omniASR_LLM_300M).
+# omnilingual-asr

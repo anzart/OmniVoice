@@ -37,14 +37,18 @@ SynthesizeFn = Callable[..., tuple[Optional[np.ndarray], Optional[str]]]
 # A batched synthesize: returns (list of float32 waveforms, None) on success,
 # or (None, error_message) on failure.
 SynthesizeBatchFn = Callable[..., tuple[Optional[list], Optional[str]]]
-# Transcribe a WAV file path → text (the model's Whisper ASR).
-TranscribeFn = Callable[[str], str]
+# Transcribe a WAV file path (+ optional language hint) → text. The provider
+# may route to a multilingual ASR (Omnilingual) for languages Whisper can't do.
+TranscribeFn = Callable[..., str]
 
 
 class TranscribeRequest(BaseModel):
     """Request body for POST /api/transcribe."""
 
     audio_base64: str = Field(..., description="Base64-encoded WAV to transcribe.")
+    language: Optional[str] = Field(
+        None, description="Language hint (e.g. 'kab') to route the ASR engine."
+    )
 
 
 class TtsRequest(BaseModel):
@@ -156,6 +160,11 @@ class HealthResponse(BaseModel):
     model: str = Field(..., description="Loaded checkpoint id.")
     device: str = Field(..., description='Compute device: "cuda" | "mps" | "cpu".')
     samplingRate: int = Field(..., description="Native output sample rate (Hz).")
+    omnilingual: bool = Field(
+        False,
+        description="Whether a multilingual ASR (Omnilingual) is available for "
+        "languages Whisper can't transcribe (e.g. Kabyle).",
+    )
 
 
 class TranscribeResponse(BaseModel):
@@ -194,6 +203,7 @@ def create_app(
     sampling_rate: int,
     device: str,
     checkpoint: str,
+    omnilingual: bool = False,
     synthesize_batch: Optional[SynthesizeBatchFn] = None,
 ) -> FastAPI:
     """Build the FastAPI app exposing the REST endpoints.
@@ -245,6 +255,7 @@ def create_app(
                 "model": checkpoint,
                 "device": device,
                 "samplingRate": sampling_rate,
+                "omnilingual": omnilingual,
             }
         )
 
@@ -264,7 +275,7 @@ def create_app(
         try:
             with os.fdopen(fd, "wb") as fh:
                 fh.write(base64.b64decode(req.audio_base64))
-            text = transcribe(tmp_path)
+            text = transcribe(tmp_path, req.language)
             return JSONResponse({"text": text})
         except Exception as e:
             return JSONResponse(

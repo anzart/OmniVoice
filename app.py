@@ -6,7 +6,7 @@ HuggingFace Space entry point for OmniVoice demo.
 
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # Force fully offline mode — models are cached locally, no internet needed
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -41,6 +41,82 @@ model = OmniVoice.from_pretrained(
 )
 sampling_rate = model.sampling_rate
 print("Model loaded successfully!")
+
+# ---------------------------------------------------------------------------
+# Optional multilingual ASR (Meta Omnilingual) for languages Whisper can't do
+# (e.g. Kabyle). The package is heavy + GPU-oriented, so it's an OPTIONAL,
+# LAZILY-loaded dependency: the model loads on first use and ANY failure (not
+# installed, no MPS/CUDA, OOM, bad model card) falls back to the built-in
+# Whisper ASR — the server always runs. Health advertises availability so the
+# frontend only does word-error validation on Kabyle when this is really up.
+# Override the checkpoint with OMNILINGUAL_MODEL.
+# ---------------------------------------------------------------------------
+OMNILINGUAL_MODEL = os.environ.get("OMNILINGUAL_MODEL", "omniASR_LLM_300M")
+# Our language id → Omnilingual "{iso}_{script}" code. Extend as needed.
+OMNILINGUAL_LANGS = {"kab": "kab_Latn"}
+
+_omni_state: Dict[str, Any] = {"pipeline": None, "failed": False}
+
+
+def _omnilingual_available() -> bool:
+    """True when the omnilingual-asr package is importable (advertised in
+    health). The model itself is only loaded on first transcription."""
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec("omnilingual_asr") is not None
+    except Exception:
+        return False
+
+
+def _omni_code(language) -> Optional[str]:
+    if not language:
+        return None
+    base = str(language).lower().split("-")[0].split("_")[0]
+    return OMNILINGUAL_LANGS.get(base)
+
+
+def _omni_transcribe(path, lang_code) -> Optional[str]:
+    """Transcribe via Omnilingual; return None to signal "fall back to Whisper"."""
+    if _omni_state["failed"]:
+        return None
+    if _omni_state["pipeline"] is None:
+        try:
+            from omnilingual_asr.models.inference.pipeline import (
+                ASRInferencePipeline,
+            )
+
+            print(f"Loading Omnilingual ASR ({OMNILINGUAL_MODEL}) ...")
+            _omni_state["pipeline"] = ASRInferencePipeline(
+                model_card=OMNILINGUAL_MODEL
+            )
+        except Exception as e:
+            print(
+                f"Omnilingual ASR unavailable ({type(e).__name__}: {e}); "
+                "using Whisper."
+            )
+            _omni_state["failed"] = True
+            return None
+    try:
+        out = _omni_state["pipeline"].transcribe([path], lang=[lang_code])
+        return (out[0] if out else "") or ""
+    except Exception as e:
+        print(
+            f"Omnilingual transcribe failed ({type(e).__name__}: {e}); "
+            "using Whisper."
+        )
+        return None
+
+
+def _transcribe(path, language=None) -> str:
+    """Route ASR by language: Omnilingual for mapped languages (e.g. Kabyle),
+    else the model's built-in Whisper. Any Omnilingual error → Whisper."""
+    code = _omni_code(language)
+    if code:
+        result = _omni_transcribe(path, code)
+        if result is not None:
+            return result
+    return model.transcribe(path)
 
 # ---------------------------------------------------------------------------
 # Generation logic
@@ -316,10 +392,11 @@ if __name__ == "__main__":
         fastapi_app = create_app(
             synthesize=_synthesize,
             synthesize_batch=_synthesize_batch,
-            transcribe=model.transcribe,
+            transcribe=_transcribe,
             sampling_rate=sampling_rate,
             device=DEVICE,
             checkpoint=CHECKPOINT,
+            omnilingual=_omnilingual_available(),
         )
         fastapi_app = gr.mount_gradio_app(fastapi_app, demo.queue(), path="/")
         print(f"REST API on http://{host}:{port}/api  |  Gradio UI on http://{host}:{port}/")
