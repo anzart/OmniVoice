@@ -22,6 +22,7 @@ import numpy as np
 import torch
 from omnivoice import OmniVoice, OmniVoiceGenerationConfig
 from omnivoice.cli.demo import build_demo
+from omnivoice.utils.common import fix_random_seed
 
 # ---------------------------------------------------------------------------
 # Model loading
@@ -55,6 +56,7 @@ def _make_gen_config(
     position_temperature,
     class_temperature,
     t_shift=None,
+    layer_penalty_factor=None,
     audio_chunk_duration=None,
     audio_chunk_threshold=None,
 ):
@@ -72,6 +74,9 @@ def _make_gen_config(
         if class_temperature is not None
         else 0.0,
         t_shift=float(t_shift) if t_shift is not None else 0.1,
+        layer_penalty_factor=float(layer_penalty_factor)
+        if layer_penalty_factor is not None
+        else 5.0,
         audio_chunk_duration=float(audio_chunk_duration)
         if audio_chunk_duration is not None
         else 15.0,
@@ -140,22 +145,31 @@ def _synthesize(
     mode="tts",
     ref_text=None,
     t_shift=None,
+    layer_penalty_factor=None,
     audio_chunk_duration=None,
     audio_chunk_threshold=None,
+    seed=None,
 ):
     """Core generation, shared by the Gradio UI and the REST API.
 
     Returns ``(float32_waveform, None)`` on success or ``(None, error)`` on
     failure. Float is kept (the model emits float) so callers decide whether
     to downsample to int16 — the REST API keeps float for fidelity.
+
+    ``seed`` (when > 0) seeds the global RNG so identical inputs reproduce the
+    same audio; 0 / None leaves sampling random.
     """
     if not text or not text.strip():
         return None, "Please enter the text to synthesize."
 
+    if seed is not None and int(seed) > 0:
+        fix_random_seed(int(seed))
+
     gen_config = _make_gen_config(
         num_step, guidance_scale, denoise, preprocess_prompt,
         postprocess_output, position_temperature, class_temperature,
-        t_shift=t_shift, audio_chunk_duration=audio_chunk_duration,
+        t_shift=t_shift, layer_penalty_factor=layer_penalty_factor,
+        audio_chunk_duration=audio_chunk_duration,
         audio_chunk_threshold=audio_chunk_threshold,
     )
     try:
@@ -190,8 +204,10 @@ def _synthesize_batch(
     mode="tts",
     ref_text=None,
     t_shift=None,
+    layer_penalty_factor=None,
     audio_chunk_duration=None,
     audio_chunk_threshold=None,
+    seed=None,
 ):
     """Batched generation: ONE ``model.generate`` call for several texts that
     share the same voice + settings (e.g. the A/B comparison tool).
@@ -208,10 +224,14 @@ def _synthesize_batch(
     if not all(cleaned):
         return None, "Please enter the text to synthesize."
 
+    if seed is not None and int(seed) > 0:
+        fix_random_seed(int(seed))
+
     gen_config = _make_gen_config(
         num_step, guidance_scale, denoise, preprocess_prompt,
         postprocess_output, position_temperature, class_temperature,
-        t_shift=t_shift, audio_chunk_duration=audio_chunk_duration,
+        t_shift=t_shift, layer_penalty_factor=layer_penalty_factor,
+        audio_chunk_duration=audio_chunk_duration,
         audio_chunk_threshold=audio_chunk_threshold,
     )
     try:
